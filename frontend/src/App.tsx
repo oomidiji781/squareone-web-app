@@ -202,6 +202,26 @@ function App() {
     setSuccess("");
   }
 
+  // Calculate progress from each student's actual assignments.
+  function getStudentProgress(studentId: number) {
+    const studentAssignments = assignments.filter(
+      (assignment) => assignment.student === studentId
+    );
+    const total = studentAssignments.length;
+    const completed = studentAssignments.filter(
+      (assignment) => assignment.status === "Completed"
+    ).length;
+    const percentage = total === 0 ? 0 : Math.round((completed / total) * 100);
+    const status =
+      total > 0 && completed === total
+        ? "Completed"
+        : percentage >= 75
+        ? "On Track"
+        : "In Progress";
+
+    return { total, completed, percentage, status };
+  }
+
   const completedTasks = assignments.filter(
     (assignment) => assignment.status === "Completed"
   ).length;
@@ -333,8 +353,8 @@ function App() {
                     <tr key={student.id}>
                       <td>{student.name}</td>
                       <td>{student.email}</td>
-                      <td>{student.progress}%</td>
-                      <td>{student.status}</td>
+                      <td>{getStudentProgress(student.id).percentage}%</td>
+                      <td>{getStudentProgress(student.id).status}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -460,18 +480,13 @@ function App() {
                     <td>{student.name}</td>
 
                     <td>
-                      {Math.round(student.progress / 25)}/4
+                      {getStudentProgress(student.id).completed}/
+                      {getStudentProgress(student.id).total}
                     </td>
 
-                    <td>{student.progress}%</td>
+                    <td>{getStudentProgress(student.id).percentage}%</td>
 
-                    <td>
-                      {student.progress === 100
-                        ? "Completed"
-                        : student.progress >= 75
-                        ? "On Track"
-                        : "In Progress"}
-                    </td>
+                    <td>{getStudentProgress(student.id).status}</td>
                   </tr>
                 ))}
               </tbody>
