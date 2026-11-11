@@ -21,27 +21,34 @@ type Assignment = {
   status: string;
 };
 
-type ApiResponse<T> = {
-  results: T[];
-};
-
 type ProgressSort =
   | "name-asc"
   | "name-desc"
   | "progress-asc"
   | "progress-desc";
 
+type ApiResponse<T> = { results: T[] };
+
 const API_URL = "http://localhost:8000/api";
+
+const colors = {
+  green: "#23834a",
+  blue: "#2874c7",
+  amber: "#d69b22",
+  red: "#c62828",
+  gray: "#e9edf2",
+};
 
 function App() {
   const [page, setPage] = useState<Page>("Dashboard");
   const [students, setStudents] = useState<Student[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const [studentSearch, setStudentSearch] = useState("");
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
-
+  const [studentSearch, setStudentSearch] = useState("");
   const [editingStudentId, setEditingStudentId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -52,7 +59,6 @@ function App() {
   const [assignmentStudent, setAssignmentStudent] = useState("");
   const [assignmentDueDate, setAssignmentDueDate] = useState("");
   const [assignmentStatus, setAssignmentStatus] = useState("Pending");
-
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState("All");
 
@@ -63,7 +69,6 @@ function App() {
   const [editAssignmentStudent, setEditAssignmentStudent] = useState("");
   const [editAssignmentDueDate, setEditAssignmentDueDate] = useState("");
   const [editAssignmentStatus, setEditAssignmentStatus] = useState("Pending");
-
   const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(
     null
   );
@@ -78,28 +83,24 @@ function App() {
     null
   );
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-
   function unpackData<T>(data: ApiResponse<T> | T[]): T[] {
     return Array.isArray(data) ? data : data.results;
   }
 
   async function refreshData() {
-    const [studentsResponse, assignmentsResponse] = await Promise.all([
+    const [studentResponse, assignmentResponse] = await Promise.all([
       fetch(`${API_URL}/students/`),
       fetch(`${API_URL}/assignments/`),
     ]);
 
-    if (!studentsResponse.ok || !assignmentsResponse.ok) {
-      throw new Error("Unable to load data.");
+    if (!studentResponse.ok || !assignmentResponse.ok) {
+      throw new Error("Unable to load SquareOne records.");
     }
 
     const studentData: ApiResponse<Student> | Student[] =
-      await studentsResponse.json();
-
+      await studentResponse.json();
     const assignmentData: ApiResponse<Assignment> | Assignment[] =
-      await assignmentsResponse.json();
+      await assignmentResponse.json();
 
     setStudents(unpackData(studentData));
     setAssignments(unpackData(assignmentData));
@@ -117,12 +118,17 @@ function App() {
     setSuccess("");
     setEditingStudentId(null);
     setEditingAssignmentId(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function clearMessages() {
+    setError("");
+    setSuccess("");
   }
 
   async function addStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    setSuccess("");
+    clearMessages();
 
     try {
       const response = await fetch(`${API_URL}/students/`, {
@@ -136,9 +142,7 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to add student.");
-      }
+      if (!response.ok) throw new Error("Student creation failed.");
 
       await refreshData();
       setNewName("");
@@ -153,8 +157,7 @@ function App() {
     setEditingStudentId(student.id);
     setEditName(student.name);
     setEditEmail(student.email);
-    setError("");
-    setSuccess("");
+    clearMessages();
   }
 
   function cancelEditingStudent() {
@@ -164,8 +167,7 @@ function App() {
   }
 
   async function saveStudent(studentId: number) {
-    setError("");
-    setSuccess("");
+    clearMessages();
 
     if (!editName.trim() || !editEmail.trim()) {
       setError("Student name and email are required.");
@@ -184,9 +186,7 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to update student.");
-      }
+      if (!response.ok) throw new Error("Student update failed.");
 
       await refreshData();
       cancelEditingStudent();
@@ -199,26 +199,27 @@ function App() {
   }
 
   async function deleteStudent(student: Student) {
-    const studentAssignments = assignments.filter(
+    const related = assignments.filter(
       (assignment) => assignment.student === student.id
     );
 
-    if (studentAssignments.length > 0) {
-      setError(
-        `Cannot delete ${student.name} while they have ${studentAssignments.length} assignment(s).`
-      );
+    if (related.length > 0) {
       setSuccess("");
+      setError(
+        `Cannot delete ${student.name} while they have ${related.length} assignment(s).`
+      );
       return;
     }
 
-    const confirmed = window.confirm(
-      `Are you sure you want to permanently delete ${student.name}? This action cannot be undone.`
-    );
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete ${student.name}?`
+      )
+    ) {
+      return;
+    }
 
-    if (!confirmed) return;
-
-    setError("");
-    setSuccess("");
+    clearMessages();
     setDeletingStudentId(student.id);
 
     try {
@@ -226,9 +227,7 @@ function App() {
         method: "DELETE",
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to delete student.");
-      }
+      if (!response.ok) throw new Error("Student deletion failed.");
 
       await refreshData();
 
@@ -246,8 +245,7 @@ function App() {
 
   async function addAssignment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    setSuccess("");
+    clearMessages();
 
     if (!assignmentStudent) {
       setError("Please select a student.");
@@ -266,12 +264,9 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to add assignment.");
-      }
+      if (!response.ok) throw new Error("Assignment creation failed.");
 
       await refreshData();
-
       setAssignmentTitle("");
       setAssignmentStudent("");
       setAssignmentDueDate("");
@@ -288,8 +283,7 @@ function App() {
     setEditAssignmentStudent(String(assignment.student));
     setEditAssignmentDueDate(assignment.due_date);
     setEditAssignmentStatus(assignment.status);
-    setError("");
-    setSuccess("");
+    clearMessages();
   }
 
   function cancelEditingAssignment() {
@@ -301,8 +295,7 @@ function App() {
   }
 
   async function saveAssignment(assignmentId: number) {
-    setError("");
-    setSuccess("");
+    clearMessages();
 
     if (
       !editAssignmentTitle.trim() ||
@@ -327,9 +320,7 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to update assignment.");
-      }
+      if (!response.ok) throw new Error("Assignment update failed.");
 
       await refreshData();
       cancelEditingAssignment();
@@ -342,24 +333,24 @@ function App() {
   }
 
   async function deleteAssignment(assignment: Assignment) {
-    const confirmed = window.confirm(
-      `Are you sure you want to permanently delete "${assignment.title}"? This action cannot be undone.`
-    );
+    if (
+      !window.confirm(
+        `Are you sure you want to permanently delete "${assignment.title}"?`
+      )
+    ) {
+      return;
+    }
 
-    if (!confirmed) return;
-
-    setError("");
-    setSuccess("");
+    clearMessages();
     setDeletingAssignmentId(assignment.id);
 
     try {
-      const response = await fetch(`${API_URL}/assignments/${assignment.id}/`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `${API_URL}/assignments/${assignment.id}/`,
+        { method: "DELETE" }
+      );
 
-      if (!response.ok) {
-        throw new Error("Failed to delete assignment.");
-      }
+      if (!response.ok) throw new Error("Assignment deletion failed.");
 
       await refreshData();
 
@@ -376,8 +367,7 @@ function App() {
   }
 
   async function updateAssignmentStatus(id: number, newStatus: string) {
-    setError("");
-    setSuccess("");
+    clearMessages();
     setSavingAssignmentId(id);
 
     try {
@@ -387,9 +377,7 @@ function App() {
         body: JSON.stringify({ status: newStatus }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to update assignment status.");
-      }
+      if (!response.ok) throw new Error("Status update failed.");
 
       await refreshData();
       setSuccess("Assignment status updated successfully!");
@@ -406,7 +394,6 @@ function App() {
     );
 
     const total = studentAssignments.length;
-
     const completed = studentAssignments.filter(
       (assignment) => assignment.status === "Completed"
     ).length;
@@ -424,12 +411,11 @@ function App() {
     return { total, completed, percentage, status };
   }
 
-  const currentDate = new Date();
-
+  const now = new Date();
   const today = [
-    currentDate.getFullYear(),
-    String(currentDate.getMonth() + 1).padStart(2, "0"),
-    String(currentDate.getDate()).padStart(2, "0"),
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
   ].join("-");
 
   const completedTasks = assignments.filter(
@@ -438,6 +424,10 @@ function App() {
 
   const pendingTasks = assignments.filter(
     (assignment) => assignment.status === "Pending"
+  ).length;
+
+  const inProgressTasks = assignments.filter(
+    (assignment) => assignment.status === "In Progress"
   ).length;
 
   const completionRate =
@@ -467,16 +457,15 @@ function App() {
   );
 
   const filteredAssignments = assignments.filter((assignment) => {
-    const matchesSearch =
-      `${assignment.title} ${assignment.student_name}`
-        .toLowerCase()
-        .includes(assignmentSearch.trim().toLowerCase());
+    const matchesSearch = `${assignment.title} ${assignment.student_name}`
+      .toLowerCase()
+      .includes(assignmentSearch.trim().toLowerCase());
 
-    const matchesStatus =
+    const matchesFilter =
       assignmentFilter === "All" ||
       assignment.status === assignmentFilter;
 
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesFilter;
   });
 
   const filteredProgressStudents = students
@@ -488,8 +477,7 @@ function App() {
         .includes(progressSearch.trim().toLowerCase());
 
       const matchesFilter =
-        progressFilter === "All" ||
-        progress.status === progressFilter;
+        progressFilter === "All" || progress.status === progressFilter;
 
       return matchesSearch && matchesFilter;
     })
@@ -511,6 +499,66 @@ function App() {
 
       return bProgress - aProgress || a.name.localeCompare(b.name);
     });
+
+  const studentPerformance = students
+    .map((student) => ({
+      student,
+      progress: getStudentProgress(student.id),
+    }))
+    .sort(
+      (a, b) =>
+        a.progress.percentage - b.progress.percentage ||
+        a.student.name.localeCompare(b.student.name)
+    );
+
+  const studentsNeedingAttention = studentPerformance.filter(
+    ({ student, progress }) => {
+      const hasOverdue = overdueAssignments.some(
+        (assignment) => assignment.student === student.id
+      );
+
+      return progress.percentage < 100 || hasOverdue;
+    }
+  );
+
+  const assignmentBreakdown = [
+    {
+      label: "Completed",
+      count: completedTasks,
+      color: colors.green,
+    },
+    {
+      label: "In Progress",
+      count: inProgressTasks,
+      color: colors.blue,
+    },
+    {
+      label: "Pending",
+      count: pendingTasks,
+      color: colors.amber,
+    },
+  ];
+
+  function progressBarStyle(percentage: number) {
+    return {
+      width: `${percentage}%`,
+      height: "100%",
+      backgroundColor:
+        percentage === 100
+          ? colors.green
+          : percentage >= 50
+          ? colors.blue
+          : colors.amber,
+      borderRadius: "8px",
+      transition: "width 0.3s ease",
+    };
+  }
+
+  function statusColor(status: string) {
+    if (status === "Completed") return colors.green;
+    if (status === "In Progress") return colors.blue;
+    return "#a16b11";
+  }
 
   function exportProgressCSV() {
     const headers = [
@@ -538,11 +586,11 @@ function App() {
     filteredProgressStudents.forEach((student) => {
       const progress = getStudentProgress(student.id);
 
-      const studentAssignments = assignments
+      const related = assignments
         .filter((assignment) => assignment.student === student.id)
         .sort((a, b) => a.due_date.localeCompare(b.due_date));
 
-      if (studentAssignments.length === 0) {
+      if (related.length === 0) {
         rows.push([
           student.id,
           student.name,
@@ -557,7 +605,7 @@ function App() {
           progress.status,
         ]);
       } else {
-        studentAssignments.forEach((assignment) => {
+        related.forEach((assignment) => {
           rows.push([
             student.id,
             student.name,
@@ -606,27 +654,6 @@ function App() {
     setSuccess("Student progress report exported successfully!");
   }
 
-  function progressBarStyle(percentage: number) {
-    return {
-      width: `${percentage}%`,
-      height: "100%",
-      backgroundColor:
-        percentage === 100
-          ? "#23834a"
-          : percentage >= 50
-          ? "#2874c7"
-          : "#e4a11b",
-      borderRadius: "8px",
-      transition: "width 0.3s ease",
-    };
-  }
-
-  function statusColor(status: string) {
-    if (status === "Completed") return "#23834a";
-    if (status === "In Progress") return "#2874c7";
-    return "#a16b11";
-  }
-
   return (
     <div className="app-layout">
       <aside className="sidebar">
@@ -634,40 +661,32 @@ function App() {
         <p>Staff Portal</p>
 
         <nav>
-          {(
-            [
-              "Dashboard",
-              "Students",
-              "Assignments",
-              "Progress",
-            ] as Page[]
-          ).map((item) => (
-            <button
-              key={item}
-              className={page === item ? "active" : ""}
-              onClick={() => changePage(item)}
-            >
-              {item}
-            </button>
-          ))}
+          {(["Dashboard", "Students", "Assignments", "Progress"] as Page[]).map(
+            (item) => (
+              <button
+                key={item}
+                className={page === item ? "active" : ""}
+                onClick={() => changePage(item)}
+              >
+                {item}
+              </button>
+            )
+          )}
         </nav>
       </aside>
 
       <main className="main-content">
         <h1>{page === "Dashboard" ? "Staff Dashboard" : page}</h1>
-
-        <p className="subtitle">
-          SquareOne Student Progress Management
-        </p>
+        <p className="subtitle">SquareOne Student Progress Management</p>
 
         {error && (
-          <p role="alert" style={{ color: "#c62828" }}>
+          <p role="alert" style={{ color: colors.red }}>
             {error}
           </p>
         )}
 
         {success && (
-          <p role="status" style={{ color: "#237a39" }}>
+          <p role="status" style={{ color: colors.green }}>
             {success}
           </p>
         )}
@@ -675,36 +694,110 @@ function App() {
         {page === "Dashboard" && (
           <>
             <div className="stats">
-              <div className="stat-card">
-                <h3>Total Students</h3>
-                <strong>{students.length}</strong>
-              </div>
-
-              <div className="stat-card">
-                <h3>Total Assignments</h3>
-                <strong>{assignments.length}</strong>
-              </div>
-
-              <div className="stat-card">
-                <h3>Completed Tasks</h3>
-                <strong>{completedTasks}</strong>
-              </div>
-
-              <div className="stat-card">
-                <h3>Pending Tasks</h3>
-                <strong>{pendingTasks}</strong>
-              </div>
-
-              <div className="stat-card">
-                <h3>Completion Rate</h3>
-                <strong>{completionRate}%</strong>
-              </div>
-
-              <div className="stat-card">
-                <h3>Overdue Tasks</h3>
-                <strong>{overdueAssignments.length}</strong>
-              </div>
+              {[
+                ["Total Students", students.length],
+                ["Total Assignments", assignments.length],
+                ["Completed Tasks", completedTasks],
+                ["Pending Tasks", pendingTasks],
+                ["Completion Rate", `${completionRate}%`],
+                ["Overdue Tasks", overdueAssignments.length],
+              ].map(([label, value]) => (
+                <div className="stat-card" key={label}>
+                  <h3>{label}</h3>
+                  <strong>{value}</strong>
+                </div>
+              ))}
             </div>
+
+            <section className="panel">
+              <h2>Assignment Status Breakdown</h2>
+              <p>
+                See how assignments are distributed across completion statuses.
+              </p>
+
+              {assignments.length === 0 ? (
+                <p>No assignment data available yet.</p>
+              ) : (
+                <>
+                  <div
+                    role="img"
+                    aria-label={`Assignment status: ${completedTasks} completed, ${inProgressTasks} in progress, ${pendingTasks} pending`}
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      height: "30px",
+                      overflow: "hidden",
+                      borderRadius: "9px",
+                      backgroundColor: colors.gray,
+                      margin: "20px 0",
+                    }}
+                  >
+                    {assignmentBreakdown.map((item) =>
+                      item.count > 0 ? (
+                        <div
+                          key={item.label}
+                          title={`${item.label}: ${item.count}`}
+                          style={{
+                            width: `${(item.count / assignments.length) * 100}%`,
+                            backgroundColor: item.color,
+                          }}
+                        />
+                      ) : null
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(150px, 1fr))",
+                      gap: "16px",
+                      marginTop: "18px",
+                    }}
+                  >
+                    {assignmentBreakdown.map((item) => (
+                      <div
+                        key={item.label}
+                        style={{
+                          border: "1px solid #e6e8eb",
+                          borderRadius: "10px",
+                          padding: "16px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "12px",
+                              height: "12px",
+                              borderRadius: "50%",
+                              backgroundColor: item.color,
+                            }}
+                          />
+                          <strong>{item.label}</strong>
+                        </div>
+
+                        <h2 style={{ margin: "12px 0 4px" }}>
+                          {item.count}
+                        </h2>
+
+                        <p style={{ color: "#777", margin: 0 }}>
+                          {Math.round(
+                            (item.count / assignments.length) * 100
+                          )}
+                          % of assignments
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
 
             <section className="panel">
               <h2>Overall Assignment Completion</h2>
@@ -717,7 +810,7 @@ function App() {
                 style={{
                   width: "100%",
                   height: "18px",
-                  backgroundColor: "#e9edf2",
+                  backgroundColor: colors.gray,
                   borderRadius: "8px",
                   overflow: "hidden",
                 }}
@@ -731,57 +824,142 @@ function App() {
             </section>
 
             <section className="panel">
-              <h2>Student Progress Overview</h2>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "12px",
+                }}
+              >
+                <h2>Students Needing Attention</h2>
 
-              {students.length === 0 ? (
-                <p>No students available.</p>
+                <button
+                  type="button"
+                  onClick={() => changePage("Progress")}
+                >
+                  View All Progress
+                </button>
+              </div>
+
+              {studentsNeedingAttention.length === 0 ? (
+                <p style={{ color: colors.green }}>
+                  {students.length === 0
+                    ? "No students have been added yet."
+                    : "All students have completed their assigned work."}
+                </p>
               ) : (
-                students.map((student) => {
-                  const progress = getStudentProgress(student.id);
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Student</th>
+                        <th>Completion</th>
+                        <th>Outstanding Work</th>
+                        <th>Attention Reason</th>
+                      </tr>
+                    </thead>
 
-                  return (
+                    <tbody>
+                      {studentsNeedingAttention.map(
+                        ({ student, progress }) => {
+                          const overdueCount = overdueAssignments.filter(
+                            (assignment) =>
+                              assignment.student === student.id
+                          ).length;
+
+                          const outstanding =
+                            progress.total - progress.completed;
+
+                          const reason =
+                            overdueCount > 0
+                              ? `${overdueCount} overdue assignment(s)`
+                              : progress.total === 0
+                              ? "No assignments assigned"
+                              : "Incomplete assignments";
+
+                          return (
+                            <tr key={student.id}>
+                              <td>{student.name}</td>
+                              <td>
+                                <strong>{progress.percentage}%</strong>
+                              </td>
+                              <td>{outstanding}</td>
+                              <td
+                                style={{
+                                  color:
+                                    overdueCount > 0
+                                      ? colors.red
+                                      : "#a16b11",
+                                }}
+                              >
+                                {reason}
+                              </td>
+                            </tr>
+                          );
+                        }
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="panel">
+              <h2>Student Performance Summary</h2>
+              <p>
+                Compare individual student completion rates, starting with
+                the lowest.
+              </p>
+
+              {studentPerformance.length === 0 ? (
+                <p>No student records available.</p>
+              ) : (
+                studentPerformance.map(({ student, progress }) => (
+                  <div
+                    key={student.id}
+                    style={{ marginBottom: "24px" }}
+                  >
                     <div
-                      key={student.id}
-                      style={{ marginBottom: "22px" }}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <strong>{student.name}</strong>
+                      <strong>{progress.percentage}%</strong>
+                    </div>
+
+                    <div
+                      style={{
+                        width: "100%",
+                        height: "14px",
+                        borderRadius: "8px",
+                        overflow: "hidden",
+                        backgroundColor: colors.gray,
+                      }}
                     >
                       <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        <strong>{student.name}</strong>
-                        <span>{progress.percentage}%</span>
-                      </div>
-
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "12px",
-                          backgroundColor: "#e9edf2",
-                          borderRadius: "8px",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div style={progressBarStyle(progress.percentage)} />
-                      </div>
-
-                      <p
-                        style={{
-                          color: "#777",
-                          fontSize: "13px",
-                          marginTop: "6px",
-                        }}
-                      >
-                        {progress.completed} of {progress.total} completed
-                        {" | "}
-                        {progress.status}
-                      </p>
+                        style={progressBarStyle(progress.percentage)}
+                      />
                     </div>
-                  );
-                })
+
+                    <p
+                      style={{
+                        color: "#777",
+                        fontSize: "13px",
+                        marginTop: "7px",
+                      }}
+                    >
+                      {progress.completed} of {progress.total} completed
+                      {" | "}
+                      {progress.status}
+                    </p>
+                  </div>
+                ))
               )}
             </section>
 
@@ -801,7 +979,6 @@ function App() {
                         <th>Status</th>
                       </tr>
                     </thead>
-
                     <tbody>
                       {upcomingAssignments.map((assignment) => (
                         <tr key={assignment.id}>
@@ -833,14 +1010,13 @@ function App() {
                         <th>Status</th>
                       </tr>
                     </thead>
-
                     <tbody>
                       {overdueAssignments.map((assignment) => (
                         <tr key={assignment.id}>
                           <td>{assignment.title}</td>
                           <td>{assignment.student_name}</td>
                           <td>{assignment.due_date}</td>
-                          <td style={{ color: "#c62828" }}>
+                          <td style={{ color: colors.red }}>
                             {assignment.status}
                           </td>
                         </tr>
@@ -855,14 +1031,23 @@ function App() {
               <h2>Recent Activity</h2>
 
               {assignments.length === 0 ? (
-                <p>No recent activity.</p>
+                <p>No assignment records available.</p>
               ) : (
-                assignments.slice(-5).reverse().map((assignment) => (
-                  <p key={assignment.id}>
-                    {assignment.student_name}: {assignment.title} (
-                    {assignment.status})
+                <>
+                  <p style={{ color: "#777", fontSize: "13px" }}>
+                    Recently listed assignments
                   </p>
-                ))
+
+                  {assignments
+                    .slice(-5)
+                    .reverse()
+                    .map((assignment) => (
+                      <p key={assignment.id}>
+                        {assignment.student_name}: {assignment.title} (
+                        {assignment.status})
+                      </p>
+                    ))}
+                </>
               )}
             </section>
           </>
@@ -983,7 +1168,9 @@ function App() {
                                   <button
                                     type="button"
                                     disabled={isSaving}
-                                    onClick={() => saveStudent(student.id)}
+                                    onClick={() =>
+                                      saveStudent(student.id)
+                                    }
                                   >
                                     {isSaving ? "Saving..." : "Save"}
                                   </button>
@@ -1169,10 +1356,8 @@ function App() {
                     {filteredAssignments.map((assignment) => {
                       const isEditing =
                         editingAssignmentId === assignment.id;
-
                       const isSaving =
                         savingAssignmentId === assignment.id;
-
                       const isDeleting =
                         deletingAssignmentId === assignment.id;
 
@@ -1420,7 +1605,7 @@ function App() {
                 type="button"
                 onClick={exportProgressCSV}
                 style={{
-                  backgroundColor: "#23834a",
+                  backgroundColor: colors.green,
                   color: "#fff",
                   padding: "12px 20px",
                   border: "none",
@@ -1500,7 +1685,7 @@ function App() {
                     style={{
                       width: "100%",
                       height: "14px",
-                      backgroundColor: "#e9edf2",
+                      backgroundColor: colors.gray,
                       borderRadius: "8px",
                       overflow: "hidden",
                     }}
@@ -1563,7 +1748,7 @@ function App() {
                                       <span
                                         style={{
                                           color: isOverdue
-                                            ? "#c62828"
+                                            ? colors.red
                                             : statusColor(assignment.status),
                                           fontWeight: "bold",
                                         }}
