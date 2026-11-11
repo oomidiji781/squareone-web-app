@@ -203,25 +203,30 @@ function App() {
   }
 
   // Calculate progress from each student's actual assignments.
-  function getStudentProgress(studentId: number) {
-    const studentAssignments = assignments.filter(
-      (assignment) => assignment.student === studentId
-    );
-    const total = studentAssignments.length;
-    const completed = studentAssignments.filter(
-      (assignment) => assignment.status === "Completed"
-    ).length;
-    const percentage = total === 0 ? 0 : Math.round((completed / total) * 100);
-    const status =
-      total > 0 && completed === total
-        ? "Completed"
-        : percentage >= 75
-        ? "On Track"
-        : "In Progress";
+  
+function getStudentProgress(studentId: number) {
+  const studentAssignments = assignments.filter(
+    (assignment) => assignment.student === studentId
+  );
 
-    return { total, completed, percentage, status };
-  }
+  const total = studentAssignments.length;
 
+  const completed = studentAssignments.filter(
+    (assignment) => assignment.status === "Completed"
+  ).length;
+
+  const percentage =
+    total === 0 ? 0 : Math.round((completed / total) * 100);
+
+  const status =
+    total === 0
+      ? "Not Started"
+      : completed === total
+      ? "Completed"
+      : "In Progress";
+
+  return { total, completed, percentage, status };
+}
   const completedTasks = assignments.filter(
     (assignment) => assignment.status === "Completed"
   ).length;
