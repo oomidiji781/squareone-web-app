@@ -36,13 +36,19 @@ class StudentListCreateView(generics.ListCreateAPIView):
     serializer_class = StudentSerializer
 
 
+class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [AllowAny]
+    queryset = Student.objects.all()
+    serializer_class = StudentSerializer
+
+
 class AssignmentListCreateView(generics.ListCreateAPIView):
     permission_classes = [AllowAny]
     queryset = Assignment.objects.select_related("student").order_by("due_date")
     serializer_class = AssignmentSerializer
 
 
-class AssignmentDetailView(generics.RetrieveUpdateAPIView):
+class AssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [AllowAny]
     queryset = Assignment.objects.all()
     serializer_class = AssignmentSerializer

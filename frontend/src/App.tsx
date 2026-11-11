@@ -32,46 +32,73 @@ function App() {
   const [students, setStudents] = useState<Student[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
 
+  const [studentSearch, setStudentSearch] = useState("");
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
+
+  const [editingStudentId, setEditingStudentId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
+  const [deletingStudentId, setDeletingStudentId] = useState<number | null>(null);
 
   const [assignmentTitle, setAssignmentTitle] = useState("");
   const [assignmentStudent, setAssignmentStudent] = useState("");
   const [assignmentDueDate, setAssignmentDueDate] = useState("");
   const [assignmentStatus, setAssignmentStatus] = useState("Pending");
 
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [assignmentFilter, setAssignmentFilter] = useState("All");
+
+  const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
+  const [editAssignmentTitle, setEditAssignmentTitle] = useState("");
+  const [editAssignmentStudent, setEditAssignmentStudent] = useState("");
+  const [editAssignmentDueDate, setEditAssignmentDueDate] = useState("");
+  const [editAssignmentStatus, setEditAssignmentStatus] = useState("Pending");
+
+  const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(null);
+  const [deletingAssignmentId, setDeletingAssignmentId] = useState<number | null>(null);
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [studentsResponse, assignmentsResponse] =
-          await Promise.all([
-            fetch(`${API_URL}/students/`),
-            fetch(`${API_URL}/assignments/`),
-          ]);
+  function unpackData<T>(data: ApiResponse<T> | T[]): T[] {
+    return Array.isArray(data) ? data : data.results;
+  }
 
-        if (!studentsResponse.ok || !assignmentsResponse.ok) {
-          throw new Error("Unable to load data.");
-        }
+  async function refreshData() {
+    const [studentsResponse, assignmentsResponse] = await Promise.all([
+      fetch(`${API_URL}/students/`),
+      fetch(`${API_URL}/assignments/`),
+    ]);
 
-        const studentData: ApiResponse<Student> =
-          await studentsResponse.json();
-
-        const assignmentData: ApiResponse<Assignment> =
-          await assignmentsResponse.json();
-
-        setStudents(studentData.results);
-        setAssignments(assignmentData.results);
-        setError("");
-      } catch {
-        setError("Could not connect to the Django backend.");
-      }
+    if (!studentsResponse.ok || !assignmentsResponse.ok) {
+      throw new Error("Unable to load data.");
     }
 
-    loadData();
+    const studentData: ApiResponse<Student> | Student[] =
+      await studentsResponse.json();
+
+    const assignmentData: ApiResponse<Assignment> | Assignment[] =
+      await assignmentsResponse.json();
+
+    setStudents(unpackData(studentData));
+    setAssignments(unpackData(assignmentData));
+  }
+
+  useEffect(() => {
+    refreshData().catch(() => {
+      setError("Could not connect to the Django backend.");
+    });
   }, []);
+
+  function changePage(nextPage: Page) {
+    setPage(nextPage);
+    setError("");
+    setSuccess("");
+    setEditingStudentId(null);
+    setEditingAssignmentId(null);
+  }
 
   async function addStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -81,9 +108,7 @@ function App() {
     try {
       const response = await fetch(`${API_URL}/students/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newName.trim(),
           email: newEmail.trim(),
@@ -96,14 +121,107 @@ function App() {
         throw new Error("Failed to add student.");
       }
 
-      const student: Student = await response.json();
-
-      setStudents((previous) => [...previous, student]);
+      await refreshData();
       setNewName("");
       setNewEmail("");
       setSuccess("Student added successfully!");
     } catch {
       setError("Unable to add student. Please try again.");
+    }
+  }
+
+  function startEditingStudent(student: Student) {
+    setEditingStudentId(student.id);
+    setEditName(student.name);
+    setEditEmail(student.email);
+    setError("");
+    setSuccess("");
+  }
+
+  function cancelEditingStudent() {
+    setEditingStudentId(null);
+    setEditName("");
+    setEditEmail("");
+  }
+
+  async function saveStudent(studentId: number) {
+    setError("");
+    setSuccess("");
+
+    if (!editName.trim() || !editEmail.trim()) {
+      setError("Student name and email are required.");
+      return;
+    }
+
+    setSavingStudentId(studentId);
+
+    try {
+      const response = await fetch(`${API_URL}/students/${studentId}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName.trim(),
+          email: editEmail.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update student.");
+      }
+
+      await refreshData();
+      cancelEditingStudent();
+      setSuccess("Student updated successfully!");
+    } catch {
+      setError("Unable to update student. Please try again.");
+    } finally {
+      setSavingStudentId(null);
+    }
+  }
+
+  async function deleteStudent(student: Student) {
+    const studentAssignments = assignments.filter(
+      (assignment) => assignment.student === student.id
+    );
+
+    if (studentAssignments.length > 0) {
+      setError(
+        `Cannot delete ${student.name} while they have ${studentAssignments.length} assignment(s).`
+      );
+      setSuccess("");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete ${student.name}? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setSuccess("");
+    setDeletingStudentId(student.id);
+
+    try {
+      const response = await fetch(`${API_URL}/students/${student.id}/`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete student.");
+      }
+
+      await refreshData();
+
+      if (editingStudentId === student.id) {
+        cancelEditingStudent();
+      }
+
+      setSuccess(`${student.name} deleted successfully!`);
+    } catch {
+      setError("Unable to delete student. Please try again.");
+    } finally {
+      setDeletingStudentId(null);
     }
   }
 
@@ -120,9 +238,7 @@ function App() {
     try {
       const response = await fetch(`${API_URL}/assignments/`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: assignmentTitle.trim(),
           student: Number(assignmentStudent),
@@ -135,22 +251,7 @@ function App() {
         throw new Error("Failed to add assignment.");
       }
 
-      const assignment: Assignment = await response.json();
-
-      const selectedStudent = students.find(
-        (student) => student.id === Number(assignmentStudent)
-      );
-
-      setAssignments((previous) => [
-        ...previous,
-        {
-          ...assignment,
-          student_name:
-            assignment.student_name ||
-            selectedStudent?.name ||
-            "Unknown Student",
-        },
-      ]);
+      await refreshData();
 
       setAssignmentTitle("");
       setAssignmentStudent("");
@@ -162,7 +263,98 @@ function App() {
     }
   }
 
-  const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(null);
+  function startEditingAssignment(assignment: Assignment) {
+    setEditingAssignmentId(assignment.id);
+    setEditAssignmentTitle(assignment.title);
+    setEditAssignmentStudent(String(assignment.student));
+    setEditAssignmentDueDate(assignment.due_date);
+    setEditAssignmentStatus(assignment.status);
+    setError("");
+    setSuccess("");
+  }
+
+  function cancelEditingAssignment() {
+    setEditingAssignmentId(null);
+    setEditAssignmentTitle("");
+    setEditAssignmentStudent("");
+    setEditAssignmentDueDate("");
+    setEditAssignmentStatus("Pending");
+  }
+
+  async function saveAssignment(assignmentId: number) {
+    setError("");
+    setSuccess("");
+
+    if (
+      !editAssignmentTitle.trim() ||
+      !editAssignmentStudent ||
+      !editAssignmentDueDate
+    ) {
+      setError("Complete all assignment fields before saving.");
+      return;
+    }
+
+    setSavingAssignmentId(assignmentId);
+
+    try {
+      const response = await fetch(`${API_URL}/assignments/${assignmentId}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: editAssignmentTitle.trim(),
+          student: Number(editAssignmentStudent),
+          due_date: editAssignmentDueDate,
+          status: editAssignmentStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update assignment.");
+      }
+
+      await refreshData();
+      cancelEditingAssignment();
+      setSuccess("Assignment updated successfully!");
+    } catch {
+      setError("Unable to update assignment. Please try again.");
+    } finally {
+      setSavingAssignmentId(null);
+    }
+  }
+
+  async function deleteAssignment(assignment: Assignment) {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete "${assignment.title}"? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setSuccess("");
+    setDeletingAssignmentId(assignment.id);
+
+    try {
+      const response = await fetch(`${API_URL}/assignments/${assignment.id}/`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete assignment.");
+      }
+
+      await refreshData();
+
+      if (editingAssignmentId === assignment.id) {
+        cancelEditingAssignment();
+      }
+
+      setSuccess("Assignment deleted successfully!");
+    } catch {
+      setError("Unable to delete assignment. Please try again.");
+    } finally {
+      setDeletingAssignmentId(null);
+    }
+  }
 
   async function updateAssignmentStatus(id: number, newStatus: string) {
     setError("");
@@ -180,14 +372,7 @@ function App() {
         throw new Error("Failed to update assignment status.");
       }
 
-      const updated: Assignment = await response.json();
-      setAssignments((previous) =>
-        previous.map((assignment) =>
-          assignment.id === id
-            ? { ...assignment, ...updated, status: newStatus }
-            : assignment
-        )
-      );
+      await refreshData();
       setSuccess("Assignment status updated successfully!");
     } catch {
       setError("Unable to update assignment status. Please try again.");
@@ -196,37 +381,30 @@ function App() {
     }
   }
 
-  function changePage(nextPage: Page) {
-    setPage(nextPage);
-    setError("");
-    setSuccess("");
+  function getStudentProgress(studentId: number) {
+    const studentAssignments = assignments.filter(
+      (assignment) => assignment.student === studentId
+    );
+
+    const total = studentAssignments.length;
+
+    const completed = studentAssignments.filter(
+      (assignment) => assignment.status === "Completed"
+    ).length;
+
+    const percentage =
+      total === 0 ? 0 : Math.round((completed / total) * 100);
+
+    const status =
+      total === 0
+        ? "Not Started"
+        : completed === total
+        ? "Completed"
+        : "In Progress";
+
+    return { total, completed, percentage, status };
   }
 
-  // Calculate progress from each student's actual assignments.
-  
-function getStudentProgress(studentId: number) {
-  const studentAssignments = assignments.filter(
-    (assignment) => assignment.student === studentId
-  );
-
-  const total = studentAssignments.length;
-
-  const completed = studentAssignments.filter(
-    (assignment) => assignment.status === "Completed"
-  ).length;
-
-  const percentage =
-    total === 0 ? 0 : Math.round((completed / total) * 100);
-
-  const status =
-    total === 0
-      ? "Not Started"
-      : completed === total
-      ? "Completed"
-      : "In Progress";
-
-  return { total, completed, percentage, status };
-}
   const completedTasks = assignments.filter(
     (assignment) => assignment.status === "Completed"
   ).length;
@@ -234,6 +412,61 @@ function getStudentProgress(studentId: number) {
   const pendingTasks = assignments.filter(
     (assignment) => assignment.status === "Pending"
   ).length;
+
+  const completionRate =
+    assignments.length === 0
+      ? 0
+      : Math.round((completedTasks / assignments.length) * 100);
+
+  // Compare date-only values to avoid timezone-related errors.
+  const today = new Date().toLocaleDateString("en-CA");
+
+  const overdueAssignments = assignments.filter(
+    (assignment) =>
+      assignment.status !== "Completed" &&
+      assignment.due_date < today
+  );
+
+  const upcomingAssignments = assignments
+    .filter(
+      (assignment) =>
+        assignment.status !== "Completed" &&
+        assignment.due_date >= today
+    )
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+    .slice(0, 5);
+
+  const filteredStudents = students.filter((student) =>
+    `${student.name} ${student.email}`
+      .toLowerCase()
+      .includes(studentSearch.trim().toLowerCase())
+  );
+
+  const filteredAssignments = assignments.filter((assignment) => {
+    const matchesSearch =
+      `${assignment.title} ${assignment.student_name}`
+        .toLowerCase()
+        .includes(assignmentSearch.trim().toLowerCase());
+
+    const matchesStatus =
+      assignmentFilter === "All" ||
+      assignment.status === assignmentFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const progressBarStyle = (percentage: number) => ({
+    width: `${percentage}%`,
+    height: "100%",
+    backgroundColor:
+      percentage === 100
+        ? "#23834a"
+        : percentage >= 50
+        ? "#2874c7"
+        : "#e4a11b",
+    borderRadius: "8px",
+    transition: "width 0.3s ease",
+  });
 
   return (
     <div className="app-layout">
@@ -262,16 +495,23 @@ function getStudentProgress(studentId: number) {
       </aside>
 
       <main className="main-content">
-        <h1>
-          {page === "Dashboard" ? "Staff Dashboard" : page}
-        </h1>
+        <h1>{page === "Dashboard" ? "Staff Dashboard" : page}</h1>
 
         <p className="subtitle">
           SquareOne Student Progress Management
         </p>
 
-        {error && <p role="alert">{error}</p>}
-        {success && <p role="status">{success}</p>}
+        {error && (
+          <p role="alert" style={{ color: "#c62828" }}>
+            {error}
+          </p>
+        )}
+
+        {success && (
+          <p role="status" style={{ color: "#237a39" }}>
+            {success}
+          </p>
+        )}
 
         {page === "Dashboard" && (
           <>
@@ -295,17 +535,178 @@ function getStudentProgress(studentId: number) {
                 <h3>Pending Tasks</h3>
                 <strong>{pendingTasks}</strong>
               </div>
+
+              <div className="stat-card">
+                <h3>Completion Rate</h3>
+                <strong>{completionRate}%</strong>
+              </div>
+
+              <div className="stat-card">
+                <h3>Overdue Tasks</h3>
+                <strong>{overdueAssignments.length}</strong>
+              </div>
             </div>
+
+            <section className="panel">
+              <h2>Overall Assignment Completion</h2>
+
+              <p>
+                {completedTasks} of {assignments.length} assignments completed
+              </p>
+
+              <div
+                style={{
+                  width: "100%",
+                  height: "18px",
+                  backgroundColor: "#e9edf2",
+                  borderRadius: "8px",
+                  overflow: "hidden",
+                }}
+              >
+                <div style={progressBarStyle(completionRate)} />
+              </div>
+
+              <p style={{ fontWeight: "bold" }}>
+                {completionRate}% Complete
+              </p>
+            </section>
+
+            <section className="panel">
+              <h2>Student Progress Overview</h2>
+
+              {students.length === 0 ? (
+                <p>No students available.</p>
+              ) : (
+                students.map((student) => {
+                  const progress = getStudentProgress(student.id);
+
+                  return (
+                    <div
+                      key={student.id}
+                      style={{ marginBottom: "22px" }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        <strong>{student.name}</strong>
+                        <span>{progress.percentage}%</span>
+                      </div>
+
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "12px",
+                          backgroundColor: "#e9edf2",
+                          borderRadius: "8px",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={progressBarStyle(progress.percentage)}
+                        />
+                      </div>
+
+                      <p
+                        style={{
+                          color: "#777",
+                          fontSize: "13px",
+                          marginTop: "6px",
+                        }}
+                      >
+                        {progress.completed} of {progress.total} completed
+                        {" | "}
+                        {progress.status}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </section>
+
+            <section className="panel">
+              <h2>Upcoming Deadlines</h2>
+
+              {upcomingAssignments.length === 0 ? (
+                <p>No upcoming incomplete assignments.</p>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Assignment</th>
+                        <th>Student</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {upcomingAssignments.map((assignment) => (
+                        <tr key={assignment.id}>
+                          <td>{assignment.title}</td>
+                          <td>{assignment.student_name}</td>
+                          <td>{assignment.due_date}</td>
+                          <td>{assignment.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="panel">
+              <h2>Overdue Assignments</h2>
+
+              {overdueAssignments.length === 0 ? (
+                <p>No overdue assignments.</p>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Assignment</th>
+                        <th>Student</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {overdueAssignments.map((assignment) => (
+                        <tr key={assignment.id}>
+                          <td>{assignment.title}</td>
+                          <td>{assignment.student_name}</td>
+                          <td>{assignment.due_date}</td>
+                          <td style={{ color: "#c62828" }}>
+                            {assignment.status}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
 
             <section className="panel">
               <h2>Recent Activity</h2>
 
-              {assignments.map((assignment) => (
-                <p key={assignment.id}>
-                  {assignment.student_name}: {assignment.title} (
-                  {assignment.status})
-                </p>
-              ))}
+              {assignments.length === 0 ? (
+                <p>No recent activity.</p>
+              ) : (
+                assignments.slice(-5).reverse().map((assignment) => (
+                  <p key={assignment.id}>
+                    {assignment.student_name}: {assignment.title} (
+                    {assignment.status})
+                  </p>
+                ))
+              )}
             </section>
           </>
         )}
@@ -320,9 +721,7 @@ function getStudentProgress(studentId: number) {
                   type="text"
                   placeholder="Student Name"
                   value={newName}
-                  onChange={(event) =>
-                    setNewName(event.target.value)
-                  }
+                  onChange={(event) => setNewName(event.target.value)}
                   required
                 />
 
@@ -330,9 +729,7 @@ function getStudentProgress(studentId: number) {
                   type="email"
                   placeholder="Student Email"
                   value={newEmail}
-                  onChange={(event) =>
-                    setNewEmail(event.target.value)
-                  }
+                  onChange={(event) => setNewEmail(event.target.value)}
                   required
                 />
 
@@ -343,27 +740,145 @@ function getStudentProgress(studentId: number) {
             <section className="panel">
               <h2>Student List</h2>
 
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Progress</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+              <input
+                type="search"
+                placeholder="Search students by name or email"
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  marginBottom: "20px",
+                  border: "1px solid #ccc",
+                  borderRadius: "6px",
+                  boxSizing: "border-box",
+                  backgroundColor: "#fff",
+                  color: "#222",
+                }}
+              />
 
-                <tbody>
-                  {students.map((student) => (
-                    <tr key={student.id}>
-                      <td>{student.name}</td>
-                      <td>{student.email}</td>
-                      <td>{getStudentProgress(student.id).percentage}%</td>
-                      <td>{getStudentProgress(student.id).status}</td>
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Progress</th>
+                      <th>Status</th>
+                      <th>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+
+                  <tbody>
+                    {filteredStudents.map((student) => {
+                      const progress = getStudentProgress(student.id);
+                      const isEditing = editingStudentId === student.id;
+                      const isSaving = savingStudentId === student.id;
+                      const isDeleting = deletingStudentId === student.id;
+
+                      return (
+                        <tr key={student.id}>
+                          <td>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                aria-label="Edit student name"
+                                value={editName}
+                                onChange={(event) =>
+                                  setEditName(event.target.value)
+                                }
+                                required
+                              />
+                            ) : (
+                              student.name
+                            )}
+                          </td>
+
+                          <td>
+                            {isEditing ? (
+                              <input
+                                type="email"
+                                aria-label="Edit student email"
+                                value={editEmail}
+                                onChange={(event) =>
+                                  setEditEmail(event.target.value)
+                                }
+                                required
+                              />
+                            ) : (
+                              student.email
+                            )}
+                          </td>
+
+                          <td>{progress.percentage}%</td>
+                          <td>{progress.status}</td>
+
+                          <td>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "8px",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={() => saveStudent(student.id)}
+                                  >
+                                    {isSaving ? "Saving..." : "Save"}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={cancelEditingStudent}
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      editingStudentId !== null ||
+                                      deletingStudentId !== null
+                                    }
+                                    onClick={() =>
+                                      startEditingStudent(student)
+                                    }
+                                  >
+                                    Edit
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      editingStudentId !== null ||
+                                      deletingStudentId !== null
+                                    }
+                                    onClick={() => deleteStudent(student)}
+                                    style={{ color: "#b42318" }}
+                                  >
+                                    {isDeleting ? "Deleting..." : "Delete"}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {filteredStudents.length === 0 && (
+                <p>No students found.</p>
+              )}
             </section>
           </>
         )}
@@ -427,40 +942,236 @@ function getStudentProgress(studentId: number) {
             <section className="panel">
               <h2>Assignment List</h2>
 
-              <table>
-                <thead>
-                  <tr>
-                    <th>Assignment</th>
-                    <th>Assigned To</th>
-                    <th>Due Date</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  marginBottom: "20px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <input
+                  type="search"
+                  placeholder="Search by assignment or student"
+                  aria-label="Search assignments"
+                  value={assignmentSearch}
+                  onChange={(event) =>
+                    setAssignmentSearch(event.target.value)
+                  }
+                  style={{
+                    flex: "1 1 250px",
+                    minWidth: "200px",
+                    padding: "12px",
+                    border: "1px solid #ccc",
+                    borderRadius: "6px",
+                    boxSizing: "border-box",
+                    backgroundColor: "#fff",
+                    color: "#222",
+                  }}
+                />
 
-                <tbody>
-                  {assignments.map((assignment) => (
-                    <tr key={assignment.id}>
-                      <td>{assignment.title}</td>
-                      <td>{assignment.student_name}</td>
-                      <td>{assignment.due_date}</td>
-                      <td>
-                        <select
-                          aria-label={`Status for ${assignment.title}`}
-                          value={assignment.status}
-                          disabled={savingAssignmentId === assignment.id}
-                          onChange={(event) =>
-                            updateAssignmentStatus(assignment.id, event.target.value)
-                          }
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="In Progress">In Progress</option>
-                          <option value="Completed">Completed</option>
-                        </select>
-                      </td>
+                <select
+                  aria-label="Filter assignments by status"
+                  value={assignmentFilter}
+                  onChange={(event) =>
+                    setAssignmentFilter(event.target.value)
+                  }
+                  style={{
+                    padding: "12px",
+                    border: "1px solid #ccc",
+                    borderRadius: "6px",
+                    backgroundColor: "#fff",
+                    color: "#222",
+                  }}
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Pending">Pending</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+
+              <p>
+                Showing {filteredAssignments.length} of{" "}
+                {assignments.length} assignments
+              </p>
+
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Assignment</th>
+                      <th>Assigned To</th>
+                      <th>Due Date</th>
+                      <th>Status</th>
+                      <th>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+
+                  <tbody>
+                    {filteredAssignments.map((assignment) => {
+                      const isEditing =
+                        editingAssignmentId === assignment.id;
+
+                      const isSaving =
+                        savingAssignmentId === assignment.id;
+
+                      const isDeleting =
+                        deletingAssignmentId === assignment.id;
+
+                      return (
+                        <tr key={assignment.id}>
+                          <td>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                aria-label="Edit assignment title"
+                                value={editAssignmentTitle}
+                                onChange={(event) =>
+                                  setEditAssignmentTitle(event.target.value)
+                                }
+                              />
+                            ) : (
+                              assignment.title
+                            )}
+                          </td>
+
+                          <td>
+                            {isEditing ? (
+                              <select
+                                aria-label="Edit assigned student"
+                                value={editAssignmentStudent}
+                                onChange={(event) =>
+                                  setEditAssignmentStudent(event.target.value)
+                                }
+                              >
+                                {students.map((student) => (
+                                  <option
+                                    key={student.id}
+                                    value={student.id}
+                                  >
+                                    {student.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              assignment.student_name
+                            )}
+                          </td>
+
+                          <td>
+                            {isEditing ? (
+                              <input
+                                type="date"
+                                aria-label="Edit assignment due date"
+                                value={editAssignmentDueDate}
+                                onChange={(event) =>
+                                  setEditAssignmentDueDate(event.target.value)
+                                }
+                              />
+                            ) : (
+                              assignment.due_date
+                            )}
+                          </td>
+
+                          <td>
+                            <select
+                              aria-label={`Status for ${assignment.title}`}
+                              value={
+                                isEditing
+                                  ? editAssignmentStatus
+                                  : assignment.status
+                              }
+                              disabled={!isEditing && isSaving}
+                              onChange={(event) => {
+                                if (isEditing) {
+                                  setEditAssignmentStatus(event.target.value);
+                                } else {
+                                  updateAssignmentStatus(
+                                    assignment.id,
+                                    event.target.value
+                                  );
+                                }
+                              }}
+                            >
+                              <option value="Pending">Pending</option>
+                              <option value="In Progress">In Progress</option>
+                              <option value="Completed">Completed</option>
+                            </select>
+                          </td>
+
+                          <td>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "8px",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={() =>
+                                      saveAssignment(assignment.id)
+                                    }
+                                  >
+                                    {isSaving ? "Saving..." : "Save"}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={cancelEditingAssignment}
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      editingAssignmentId !== null ||
+                                      deletingAssignmentId !== null ||
+                                      savingAssignmentId !== null
+                                    }
+                                    onClick={() =>
+                                      startEditingAssignment(assignment)
+                                    }
+                                  >
+                                    Edit
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      editingAssignmentId !== null ||
+                                      deletingAssignmentId !== null ||
+                                      savingAssignmentId !== null
+                                    }
+                                    onClick={() =>
+                                      deleteAssignment(assignment)
+                                    }
+                                    style={{ color: "#b42318" }}
+                                  >
+                                    {isDeleting ? "Deleting..." : "Delete"}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {filteredAssignments.length === 0 && (
+                <p>No assignments match your search or filter.</p>
+              )}
             </section>
           </>
         )}
@@ -469,33 +1180,35 @@ function getStudentProgress(studentId: number) {
           <section className="panel">
             <h2>Student Progress</h2>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Student</th>
-                  <th>Assignments Completed</th>
-                  <th>Progress</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {students.map((student) => (
-                  <tr key={student.id}>
-                    <td>{student.name}</td>
-
-                    <td>
-                      {getStudentProgress(student.id).completed}/
-                      {getStudentProgress(student.id).total}
-                    </td>
-
-                    <td>{getStudentProgress(student.id).percentage}%</td>
-
-                    <td>{getStudentProgress(student.id).status}</td>
+            <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Assignments Completed</th>
+                    <th>Progress</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {students.map((student) => {
+                    const progress = getStudentProgress(student.id);
+
+                    return (
+                      <tr key={student.id}>
+                        <td>{student.name}</td>
+                        <td>
+                          {progress.completed}/{progress.total}
+                        </td>
+                        <td>{progress.percentage}%</td>
+                        <td>{progress.status}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
       </main>
