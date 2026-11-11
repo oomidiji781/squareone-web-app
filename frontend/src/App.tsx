@@ -25,6 +25,12 @@ type ApiResponse<T> = {
   results: T[];
 };
 
+type ProgressSort =
+  | "name-asc"
+  | "name-desc"
+  | "progress-asc"
+  | "progress-desc";
+
 const API_URL = "http://localhost:8000/api";
 
 function App() {
@@ -50,18 +56,27 @@ function App() {
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState("All");
 
-  const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
+  const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(
+    null
+  );
   const [editAssignmentTitle, setEditAssignmentTitle] = useState("");
   const [editAssignmentStudent, setEditAssignmentStudent] = useState("");
   const [editAssignmentDueDate, setEditAssignmentDueDate] = useState("");
   const [editAssignmentStatus, setEditAssignmentStatus] = useState("Pending");
 
-  const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(null);
-  const [deletingAssignmentId, setDeletingAssignmentId] = useState<number | null>(null);
+  const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(
+    null
+  );
+  const [deletingAssignmentId, setDeletingAssignmentId] = useState<number | null>(
+    null
+  );
 
   const [progressSearch, setProgressSearch] = useState("");
   const [progressFilter, setProgressFilter] = useState("All");
-  const [expandedStudentId, setExpandedStudentId] = useState<number | null>(null);
+  const [progressSort, setProgressSort] = useState<ProgressSort>("name-asc");
+  const [expandedStudentId, setExpandedStudentId] = useState<number | null>(
+    null
+  );
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -409,6 +424,94 @@ function App() {
     return { total, completed, percentage, status };
   }
 
+  const currentDate = new Date();
+
+  const today = [
+    currentDate.getFullYear(),
+    String(currentDate.getMonth() + 1).padStart(2, "0"),
+    String(currentDate.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  const completedTasks = assignments.filter(
+    (assignment) => assignment.status === "Completed"
+  ).length;
+
+  const pendingTasks = assignments.filter(
+    (assignment) => assignment.status === "Pending"
+  ).length;
+
+  const completionRate =
+    assignments.length === 0
+      ? 0
+      : Math.round((completedTasks / assignments.length) * 100);
+
+  const overdueAssignments = assignments.filter(
+    (assignment) =>
+      assignment.status !== "Completed" &&
+      assignment.due_date < today
+  );
+
+  const upcomingAssignments = assignments
+    .filter(
+      (assignment) =>
+        assignment.status !== "Completed" &&
+        assignment.due_date >= today
+    )
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+    .slice(0, 5);
+
+  const filteredStudents = students.filter((student) =>
+    `${student.name} ${student.email}`
+      .toLowerCase()
+      .includes(studentSearch.trim().toLowerCase())
+  );
+
+  const filteredAssignments = assignments.filter((assignment) => {
+    const matchesSearch =
+      `${assignment.title} ${assignment.student_name}`
+        .toLowerCase()
+        .includes(assignmentSearch.trim().toLowerCase());
+
+    const matchesStatus =
+      assignmentFilter === "All" ||
+      assignment.status === assignmentFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredProgressStudents = students
+    .filter((student) => {
+      const progress = getStudentProgress(student.id);
+
+      const matchesSearch = `${student.name} ${student.email}`
+        .toLowerCase()
+        .includes(progressSearch.trim().toLowerCase());
+
+      const matchesFilter =
+        progressFilter === "All" ||
+        progress.status === progressFilter;
+
+      return matchesSearch && matchesFilter;
+    })
+    .sort((a, b) => {
+      if (progressSort === "name-asc") {
+        return a.name.localeCompare(b.name);
+      }
+
+      if (progressSort === "name-desc") {
+        return b.name.localeCompare(a.name);
+      }
+
+      const aProgress = getStudentProgress(a.id).percentage;
+      const bProgress = getStudentProgress(b.id).percentage;
+
+      if (progressSort === "progress-asc") {
+        return aProgress - bProgress || a.name.localeCompare(b.name);
+      }
+
+      return bProgress - aProgress || a.name.localeCompare(b.name);
+    });
+
   function exportProgressCSV() {
     const headers = [
       "Student ID",
@@ -435,9 +538,9 @@ function App() {
     filteredProgressStudents.forEach((student) => {
       const progress = getStudentProgress(student.id);
 
-      const studentAssignments = assignments.filter(
-        (assignment) => assignment.student === student.id
-      );
+      const studentAssignments = assignments
+        .filter((assignment) => assignment.student === student.id)
+        .sort((a, b) => a.due_date.localeCompare(b.due_date));
 
       if (studentAssignments.length === 0) {
         rows.push([
@@ -496,81 +599,12 @@ function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
     setError("");
     setSuccess("Student progress report exported successfully!");
   }
-
-  const completedTasks = assignments.filter(
-    (assignment) => assignment.status === "Completed"
-  ).length;
-
-  const pendingTasks = assignments.filter(
-    (assignment) => assignment.status === "Pending"
-  ).length;
-
-  const completionRate =
-    assignments.length === 0
-      ? 0
-      : Math.round((completedTasks / assignments.length) * 100);
-
-  const currentDate = new Date();
-
-  const today = [
-    currentDate.getFullYear(),
-    String(currentDate.getMonth() + 1).padStart(2, "0"),
-    String(currentDate.getDate()).padStart(2, "0"),
-  ].join("-");
-
-  const overdueAssignments = assignments.filter(
-    (assignment) =>
-      assignment.status !== "Completed" &&
-      assignment.due_date < today
-  );
-
-  const upcomingAssignments = assignments
-    .filter(
-      (assignment) =>
-        assignment.status !== "Completed" &&
-        assignment.due_date >= today
-    )
-    .sort((a, b) => a.due_date.localeCompare(b.due_date))
-    .slice(0, 5);
-
-  const filteredStudents = students.filter((student) =>
-    `${student.name} ${student.email}`
-      .toLowerCase()
-      .includes(studentSearch.trim().toLowerCase())
-  );
-
-  const filteredAssignments = assignments.filter((assignment) => {
-    const matchesSearch =
-      `${assignment.title} ${assignment.student_name}`
-        .toLowerCase()
-        .includes(assignmentSearch.trim().toLowerCase());
-
-    const matchesStatus =
-      assignmentFilter === "All" ||
-      assignment.status === assignmentFilter;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  const filteredProgressStudents = students.filter((student) => {
-    const progress = getStudentProgress(student.id);
-
-    const matchesSearch =
-      `${student.name} ${student.email}`
-        .toLowerCase()
-        .includes(progressSearch.trim().toLowerCase());
-
-    const matchesFilter =
-      progressFilter === "All" ||
-      progress.status === progressFilter;
-
-    return matchesSearch && matchesFilter;
-  });
 
   function progressBarStyle(percentage: number) {
     return {
@@ -1355,6 +1389,26 @@ function App() {
                   <option value="In Progress">In Progress</option>
                   <option value="Completed">Completed</option>
                 </select>
+
+                <select
+                  aria-label="Sort students"
+                  value={progressSort}
+                  onChange={(event) =>
+                    setProgressSort(event.target.value as ProgressSort)
+                  }
+                  style={{
+                    padding: "12px",
+                    border: "1px solid #ccc",
+                    borderRadius: "6px",
+                    backgroundColor: "#fff",
+                    color: "#222",
+                  }}
+                >
+                  <option value="name-asc">Name A–Z</option>
+                  <option value="name-desc">Name Z–A</option>
+                  <option value="progress-asc">Lowest Progress First</option>
+                  <option value="progress-desc">Highest Progress First</option>
+                </select>
               </div>
 
               <p>
@@ -1380,8 +1434,8 @@ function App() {
               </button>
 
               <p style={{ color: "#777", fontSize: "13px" }}>
-                The report includes the students currently matching
-                your search and progress filter.
+                The report follows your current search, filter,
+                and sorting selections.
               </p>
             </section>
 
