@@ -162,6 +162,40 @@ function App() {
     }
   }
 
+  const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(null);
+
+  async function updateAssignmentStatus(id: number, newStatus: string) {
+    setError("");
+    setSuccess("");
+    setSavingAssignmentId(id);
+
+    try {
+      const response = await fetch(`${API_URL}/assignments/${id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update assignment status.");
+      }
+
+      const updated: Assignment = await response.json();
+      setAssignments((previous) =>
+        previous.map((assignment) =>
+          assignment.id === id
+            ? { ...assignment, ...updated, status: newStatus }
+            : assignment
+        )
+      );
+      setSuccess("Assignment status updated successfully!");
+    } catch {
+      setError("Unable to update assignment status. Please try again.");
+    } finally {
+      setSavingAssignmentId(null);
+    }
+  }
+
   function changePage(nextPage: Page) {
     setPage(nextPage);
     setError("");
@@ -384,7 +418,20 @@ function App() {
                       <td>{assignment.title}</td>
                       <td>{assignment.student_name}</td>
                       <td>{assignment.due_date}</td>
-                      <td>{assignment.status}</td>
+                      <td>
+                        <select
+                          aria-label={`Status for ${assignment.title}`}
+                          value={assignment.status}
+                          disabled={savingAssignmentId === assignment.id}
+                          onChange={(event) =>
+                            updateAssignmentStatus(assignment.id, event.target.value)
+                          }
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

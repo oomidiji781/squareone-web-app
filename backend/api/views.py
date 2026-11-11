@@ -40,3 +40,9 @@ class AssignmentListCreateView(generics.ListCreateAPIView):
     permission_classes = [AllowAny]
     queryset = Assignment.objects.select_related("student").order_by("due_date")
     serializer_class = AssignmentSerializer
+
+
+class AssignmentDetailView(generics.RetrieveUpdateAPIView):
+    permission_classes = [AllowAny]
+    queryset = Assignment.objects.all()
+    serializer_class = AssignmentSerializer
