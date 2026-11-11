@@ -59,6 +59,10 @@ function App() {
   const [savingAssignmentId, setSavingAssignmentId] = useState<number | null>(null);
   const [deletingAssignmentId, setDeletingAssignmentId] = useState<number | null>(null);
 
+  const [progressSearch, setProgressSearch] = useState("");
+  const [progressFilter, setProgressFilter] = useState("All");
+  const [expandedStudentId, setExpandedStudentId] = useState<number | null>(null);
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -405,6 +409,99 @@ function App() {
     return { total, completed, percentage, status };
   }
 
+  function exportProgressCSV() {
+    const headers = [
+      "Student ID",
+      "Student Name",
+      "Student Email",
+      "Assignment ID",
+      "Assignment Title",
+      "Due Date",
+      "Assignment Status",
+      "Completed Assignments",
+      "Total Assignments",
+      "Completion Percentage",
+      "Progress Status",
+    ];
+
+    function escapeCSV(value: string | number) {
+      const text = String(value);
+      const safeText = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+      return `"${safeText.replace(/"/g, '""')}"`;
+    }
+
+    const rows: (string | number)[][] = [];
+
+    filteredProgressStudents.forEach((student) => {
+      const progress = getStudentProgress(student.id);
+
+      const studentAssignments = assignments.filter(
+        (assignment) => assignment.student === student.id
+      );
+
+      if (studentAssignments.length === 0) {
+        rows.push([
+          student.id,
+          student.name,
+          student.email,
+          "",
+          "",
+          "",
+          "",
+          progress.completed,
+          progress.total,
+          progress.percentage,
+          progress.status,
+        ]);
+      } else {
+        studentAssignments.forEach((assignment) => {
+          rows.push([
+            student.id,
+            student.name,
+            student.email,
+            assignment.id,
+            assignment.title,
+            assignment.due_date,
+            assignment.status,
+            progress.completed,
+            progress.total,
+            progress.percentage,
+            progress.status,
+          ]);
+        });
+      }
+    });
+
+    if (rows.length === 0) {
+      setError("There are no student records to export.");
+      setSuccess("");
+      return;
+    }
+
+    const csv = [
+      headers.map(escapeCSV).join(","),
+      ...rows.map((row) => row.map(escapeCSV).join(",")),
+    ].join("\r\n");
+
+    const blob = new Blob(["\uFEFF", csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `squareone-student-progress-${today}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setError("");
+    setSuccess("Student progress report exported successfully!");
+  }
+
   const completedTasks = assignments.filter(
     (assignment) => assignment.status === "Completed"
   ).length;
@@ -418,8 +515,13 @@ function App() {
       ? 0
       : Math.round((completedTasks / assignments.length) * 100);
 
-  // Compare date-only values to avoid timezone-related errors.
-  const today = new Date().toLocaleDateString("en-CA");
+  const currentDate = new Date();
+
+  const today = [
+    currentDate.getFullYear(),
+    String(currentDate.getMonth() + 1).padStart(2, "0"),
+    String(currentDate.getDate()).padStart(2, "0"),
+  ].join("-");
 
   const overdueAssignments = assignments.filter(
     (assignment) =>
@@ -455,18 +557,41 @@ function App() {
     return matchesSearch && matchesStatus;
   });
 
-  const progressBarStyle = (percentage: number) => ({
-    width: `${percentage}%`,
-    height: "100%",
-    backgroundColor:
-      percentage === 100
-        ? "#23834a"
-        : percentage >= 50
-        ? "#2874c7"
-        : "#e4a11b",
-    borderRadius: "8px",
-    transition: "width 0.3s ease",
+  const filteredProgressStudents = students.filter((student) => {
+    const progress = getStudentProgress(student.id);
+
+    const matchesSearch =
+      `${student.name} ${student.email}`
+        .toLowerCase()
+        .includes(progressSearch.trim().toLowerCase());
+
+    const matchesFilter =
+      progressFilter === "All" ||
+      progress.status === progressFilter;
+
+    return matchesSearch && matchesFilter;
   });
+
+  function progressBarStyle(percentage: number) {
+    return {
+      width: `${percentage}%`,
+      height: "100%",
+      backgroundColor:
+        percentage === 100
+          ? "#23834a"
+          : percentage >= 50
+          ? "#2874c7"
+          : "#e4a11b",
+      borderRadius: "8px",
+      transition: "width 0.3s ease",
+    };
+  }
+
+  function statusColor(status: string) {
+    if (status === "Completed") return "#23834a";
+    if (status === "In Progress") return "#2874c7";
+    return "#a16b11";
+  }
 
   return (
     <div className="app-layout">
@@ -606,9 +731,7 @@ function App() {
                           overflow: "hidden",
                         }}
                       >
-                        <div
-                          style={progressBarStyle(progress.percentage)}
-                        />
+                        <div style={progressBarStyle(progress.percentage)} />
                       </div>
 
                       <p
@@ -1177,39 +1300,243 @@ function App() {
         )}
 
         {page === "Progress" && (
-          <section className="panel">
-            <h2>Student Progress</h2>
+          <>
+            <section className="panel">
+              <h2>Student Progress Details</h2>
 
-            <div style={{ overflowX: "auto" }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Student</th>
-                    <th>Assignments Completed</th>
-                    <th>Progress</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+              <p>
+                Monitor each student's assignments, completion rate,
+                and outstanding work.
+              </p>
 
-                <tbody>
-                  {students.map((student) => {
-                    const progress = getStudentProgress(student.id);
+              <div
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  marginBottom: "20px",
+                }}
+              >
+                <input
+                  type="search"
+                  placeholder="Search students by name or email"
+                  aria-label="Search student progress"
+                  value={progressSearch}
+                  onChange={(event) =>
+                    setProgressSearch(event.target.value)
+                  }
+                  style={{
+                    flex: "1 1 250px",
+                    minWidth: "200px",
+                    padding: "12px",
+                    border: "1px solid #ccc",
+                    borderRadius: "6px",
+                    backgroundColor: "#fff",
+                    color: "#222",
+                  }}
+                />
 
-                    return (
-                      <tr key={student.id}>
-                        <td>{student.name}</td>
-                        <td>
-                          {progress.completed}/{progress.total}
-                        </td>
-                        <td>{progress.percentage}%</td>
-                        <td>{progress.status}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                <select
+                  aria-label="Filter students by progress"
+                  value={progressFilter}
+                  onChange={(event) =>
+                    setProgressFilter(event.target.value)
+                  }
+                  style={{
+                    padding: "12px",
+                    border: "1px solid #ccc",
+                    borderRadius: "6px",
+                    backgroundColor: "#fff",
+                    color: "#222",
+                  }}
+                >
+                  <option value="All">All Progress</option>
+                  <option value="Not Started">Not Started</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+
+              <p>
+                Showing {filteredProgressStudents.length} of{" "}
+                {students.length} students
+              </p>
+
+              <button
+                type="button"
+                onClick={exportProgressCSV}
+                style={{
+                  backgroundColor: "#23834a",
+                  color: "#fff",
+                  padding: "12px 20px",
+                  border: "none",
+                  borderRadius: "6px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  marginTop: "10px",
+                }}
+              >
+                Export Progress Report (CSV)
+              </button>
+
+              <p style={{ color: "#777", fontSize: "13px" }}>
+                The report includes the students currently matching
+                your search and progress filter.
+              </p>
+            </section>
+
+            {filteredProgressStudents.map((student) => {
+              const progress = getStudentProgress(student.id);
+
+              const studentAssignments = assignments
+                .filter(
+                  (assignment) => assignment.student === student.id
+                )
+                .sort((a, b) =>
+                  a.due_date.localeCompare(b.due_date)
+                );
+
+              const isExpanded = expandedStudentId === student.id;
+
+              return (
+                <section className="panel" key={student.id}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "16px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <h2 style={{ marginBottom: "6px" }}>
+                        {student.name}
+                      </h2>
+                      <p style={{ color: "#777" }}>
+                        {student.email}
+                      </p>
+                    </div>
+
+                    <span
+                      style={{
+                        color: statusColor(progress.status),
+                        fontWeight: "bold",
+                        padding: "8px 12px",
+                        backgroundColor: "#f5f6f8",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      {progress.status}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <strong>Assignment Completion</strong>
+                    <strong>{progress.percentage}%</strong>
+                  </div>
+
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "14px",
+                      backgroundColor: "#e9edf2",
+                      borderRadius: "8px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={progressBarStyle(progress.percentage)}
+                    />
+                  </div>
+
+                  <p style={{ marginTop: "12px" }}>
+                    {progress.completed} of {progress.total} assignments
+                    completed
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedStudentId(
+                        isExpanded ? null : student.id
+                      )
+                    }
+                    aria-expanded={isExpanded}
+                  >
+                    {isExpanded
+                      ? "Hide Assignments"
+                      : "View Assignments"}
+                  </button>
+
+                  {isExpanded && (
+                    <div style={{ marginTop: "20px" }}>
+                      <h3>Assignment Breakdown</h3>
+
+                      {studentAssignments.length === 0 ? (
+                        <p>
+                          No assignments have been assigned to this
+                          student yet.
+                        </p>
+                      ) : (
+                        <div style={{ overflowX: "auto" }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Assignment</th>
+                                <th>Due Date</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {studentAssignments.map((assignment) => {
+                                const isOverdue =
+                                  assignment.status !== "Completed" &&
+                                  assignment.due_date < today;
+
+                                return (
+                                  <tr key={assignment.id}>
+                                    <td>{assignment.title}</td>
+                                    <td>{assignment.due_date}</td>
+                                    <td>
+                                      <span
+                                        style={{
+                                          color: isOverdue
+                                            ? "#c62828"
+                                            : statusColor(assignment.status),
+                                          fontWeight: "bold",
+                                        }}
+                                      >
+                                        {assignment.status}
+                                        {isOverdue ? " (Overdue)" : ""}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+
+            {filteredProgressStudents.length === 0 && (
+              <section className="panel">
+                <p>No students match your search or progress filter.</p>
+              </section>
+            )}
+          </>
         )}
       </main>
     </div>
