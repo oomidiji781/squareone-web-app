@@ -2,6 +2,8 @@
 from django.urls import path
 
 from .views import (
+    ResumeSubmissionListCreateView,
+    ResumeSubmissionDetailView,
     HealthCheckView,
     ClientListCreateView,
     StudentListCreateView,
@@ -11,6 +13,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("resume-submissions/", ResumeSubmissionListCreateView.as_view(), name="resume-submission-list"),
+    path("resume-submissions/<int:pk>/", ResumeSubmissionDetailView.as_view(), name="resume-submission-detail"),
     path("health/", HealthCheckView.as_view(), name="health-check"),
     path("clients/", ClientListCreateView.as_view(), name="client-list"),
     path("students/", StudentListCreateView.as_view(), name="student-list"),

@@ -1,5 +1,6 @@
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./App.css";
 
 type Page = "Dashboard" | "Students" | "Assignments" | "Progress";
@@ -40,7 +41,20 @@ const colors = {
 };
 
 function App() {
-  const [page, setPage] = useState<Page>("Dashboard");
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const routes: Record<Page, string> = {
+    Dashboard: "/",
+    Students: "/students",
+    Assignments: "/assignments",
+    Progress: "/progress",
+  };
+
+  const page: Page =
+    (Object.keys(routes) as Page[]).find(
+      (item) => routes[item] === location.pathname
+    ) ?? "Dashboard";
   const [students, setStudents] = useState<Student[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [error, setError] = useState("");
@@ -113,7 +127,7 @@ function App() {
   }, []);
 
   function changePage(nextPage: Page) {
-    setPage(nextPage);
+    navigate(routes[nextPage]);
     setError("");
     setSuccess("");
     setEditingStudentId(null);

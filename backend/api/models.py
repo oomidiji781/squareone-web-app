@@ -61,3 +61,31 @@ class Assignment(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class ResumeSubmission(models.Model):
+    REVIEW_STATUS_CHOICES = [
+        ("Submitted", "Submitted"),
+        ("Under Review", "Under Review"),
+        ("Revision Requested", "Revision Requested"),
+        ("Approved", "Approved"),
+    ]
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="resume_submissions",
+    )
+    resume = models.FileField(upload_to="resumes/")
+    version = models.PositiveIntegerField(default=1)
+    review_status = models.CharField(
+        max_length=30,
+        choices=REVIEW_STATUS_CHOICES,
+        default="Submitted",
+    )
+    mentor_feedback = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.student.name} - Resume v{self.version}"

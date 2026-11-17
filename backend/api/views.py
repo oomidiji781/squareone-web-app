@@ -52,3 +52,21 @@ class AssignmentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [AllowAny]
     queryset = Assignment.objects.all()
     serializer_class = AssignmentSerializer
+
+
+from rest_framework import generics
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from .models import ResumeSubmission
+from .serializers import ResumeSubmissionSerializer
+
+
+class ResumeSubmissionListCreateView(generics.ListCreateAPIView):
+    queryset = ResumeSubmission.objects.select_related("student").all()
+    serializer_class = ResumeSubmissionSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+
+class ResumeSubmissionDetailView(generics.RetrieveUpdateAPIView):
+    queryset = ResumeSubmission.objects.select_related("student").all()
+    serializer_class = ResumeSubmissionSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
