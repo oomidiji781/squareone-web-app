@@ -1,9 +1,14 @@
 
+
+
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./App.css";
+import UserManagement from "./components/UserManagement";
 
-type Page = "Dashboard" | "Students" | "Assignments" | "Progress";
+type Profile = { id: number; username: string; first_name: string; last_name: string; email: string; full_name: string; role: string; date_joined: string };
+
+type Page = "Dashboard" | "Students" | "Assignments" | "Progress" | "User Management";
 
 type Student = {
   id: number;
@@ -42,13 +47,60 @@ const colors = {
 
 function App() {
   const navigate = useNavigate();
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [accountView, setAccountView] = useState<"profile" | "edit" | "password" | null>(null);
+  const [accountError, setAccountError] = useState("");
+  const [accountSuccess, setAccountSuccess] = useState("");
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", email: "" });
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
   const location = useLocation();
+
+  async function loadProfile() {
+    const response = await authenticatedFetch(`${API_URL}/profile/`);
+    if (!response.ok) throw new Error("Unable to load your profile.");
+    const data: Profile = await response.json();
+    setProfile(data);
+    setProfileForm({ first_name: data.first_name, last_name: data.last_name, email: data.email });
+  }
+  useEffect(() => { loadProfile().catch((e: unknown) => setAccountError(e instanceof Error ? e.message : "Unable to load profile.")); }, []);
+
+  function openAccount(view: "profile" | "edit" | "password") {
+    setAccountOpen(false);
+    setAccountView(view);
+    setAccountError("");
+    setAccountSuccess("");
+    setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+    if (profile) setProfileForm({ first_name: profile.first_name, last_name: profile.last_name, email: profile.email });
+    if (!profile && view !== "password") loadProfile().catch((e: unknown) => setAccountError(e instanceof Error ? e.message : "Unable to load profile."));
+  }
+  async function saveAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAccountBusy(true); setAccountError(""); setAccountSuccess("");
+    const password = accountView === "password";
+    try {
+      const response = await authenticatedFetch(`${API_URL}/${password ? "change-password" : "profile"}/`, {
+        method: password ? "POST" : "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(password ? passwordForm : profileForm),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || Object.values(data).flat().join(" ") || "Unable to save changes.");
+      if (password) {
+        setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+        logout();
+      } else { setProfile(data); setAccountView("profile"); setAccountSuccess("Profile updated successfully."); }
+    } catch (e: unknown) { setAccountError(e instanceof Error ? e.message : "Unable to save changes."); }
+    finally { setAccountBusy(false); }
+  }
+
 
   const routes: Record<Page, string> = {
     Dashboard: "/",
     Students: "/students",
     Assignments: "/assignments",
     Progress: "/progress",
+    "User Management": "/users",
   };
 
   const page: Page =
@@ -103,29 +155,58 @@ function App() {
 
   async function refreshData() {
     const [studentResponse, assignmentResponse] = await Promise.all([
-      fetch(`${API_URL}/students/`),
-      fetch(`${API_URL}/assignments/`),
+      authenticatedFetch(`${API_URL}/students/`),
+      authenticatedFetch(`${API_URL}/assignments/`),
     ]);
 
     if (!studentResponse.ok || !assignmentResponse.ok) {
       throw new Error("Unable to load SquareOne records.");
     }
 
-    const studentData: ApiResponse<Student> | Student[] =
-      await studentResponse.json();
-    const assignmentData: ApiResponse<Assignment> | Assignment[] =
-      await assignmentResponse.json();
-
+    const studentData: ApiResponse<Student> | Student[] = await studentResponse.json();
+    const assignmentData: ApiResponse<Assignment> | Assignment[] = await assignmentResponse.json();
     setStudents(unpackData(studentData));
     setAssignments(unpackData(assignmentData));
   }
 
   useEffect(() => {
-    refreshData().catch(() => {
-      setError("Could not connect to the Django backend.");
+    refreshData().catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : "Could not connect to the Django backend.");
     });
   }, []);
 
+  function logout() {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    navigate("/login", { replace: true });
+  }
+
+  async function authenticatedFetch(
+    url: string,
+    options: RequestInit = {}
+  ) {
+    const token = localStorage.getItem("access_token");
+
+    if (!token) {
+      logout();
+      throw new Error("Please sign in again.");
+    }
+
+    const headers = new Headers(options.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    if (response.status === 401) {
+      logout();
+      throw new Error("Your session has expired.");
+    }
+
+    return response;
+  }
   function changePage(nextPage: Page) {
     navigate(routes[nextPage]);
     setError("");
@@ -145,7 +226,7 @@ function App() {
     clearMessages();
 
     try {
-      const response = await fetch(`${API_URL}/students/`, {
+      const response = await authenticatedFetch(`${API_URL}/students/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -191,7 +272,7 @@ function App() {
     setSavingStudentId(studentId);
 
     try {
-      const response = await fetch(`${API_URL}/students/${studentId}/`, {
+      const response = await authenticatedFetch(`${API_URL}/students/${studentId}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -237,7 +318,7 @@ function App() {
     setDeletingStudentId(student.id);
 
     try {
-      const response = await fetch(`${API_URL}/students/${student.id}/`, {
+      const response = await authenticatedFetch(`${API_URL}/students/${student.id}/`, {
         method: "DELETE",
       });
 
@@ -267,7 +348,7 @@ function App() {
     }
 
     try {
-      const response = await fetch(`${API_URL}/assignments/`, {
+      const response = await authenticatedFetch(`${API_URL}/assignments/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -323,7 +404,7 @@ function App() {
     setSavingAssignmentId(assignmentId);
 
     try {
-      const response = await fetch(`${API_URL}/assignments/${assignmentId}/`, {
+      const response = await authenticatedFetch(`${API_URL}/assignments/${assignmentId}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -359,7 +440,7 @@ function App() {
     setDeletingAssignmentId(assignment.id);
 
     try {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `${API_URL}/assignments/${assignment.id}/`,
         { method: "DELETE" }
       );
@@ -385,7 +466,7 @@ function App() {
     setSavingAssignmentId(id);
 
     try {
-      const response = await fetch(`${API_URL}/assignments/${id}/`, {
+      const response = await authenticatedFetch(`${API_URL}/assignments/${id}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -671,27 +752,44 @@ function App() {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <h2>SquareOne</h2>
+        <h2><span className="brand-mark">S</span> SquareOne</h2>
         <p>Staff Portal</p>
 
         <nav>
-          {(["Dashboard", "Students", "Assignments", "Progress"] as Page[]).map(
+          {(["Dashboard", "Students", "Assignments", "Progress", ...(profile?.role === "Administrator" ? ["User Management"] : [])] as Page[]).map(
             (item) => (
               <button
                 key={item}
                 className={page === item ? "active" : ""}
                 onClick={() => changePage(item)}
               >
-                {item}
+                <span className="nav-icon" aria-hidden="true">{({ Dashboard: "▦", Students: "♙", Assignments: "▤", Progress: "↗", "User Management": "⚙" })[item]}</span>{item}
               </button>
             )
           )}
+
         </nav>
       </aside>
 
       <main className="main-content">
-        <h1>{page === "Dashboard" ? "Staff Dashboard" : page}</h1>
-        <p className="subtitle">SquareOne Student Progress Management</p>
+        <header className="portal-header">
+          <div><span className="eyebrow">WORKSPACE / {page.toUpperCase()}</span><h1>{page === "Dashboard" ? "Staff Dashboard" : page}</h1><p className="subtitle">SquareOne Student Progress Management</p></div>
+          <div className="account" onKeyDown={(event) => { if (event.key === "Escape") setAccountOpen(false); }}>
+            <button type="button" className="account-trigger" aria-expanded={accountOpen} aria-controls="account-menu" onClick={() => setAccountOpen(!accountOpen)}><span className="avatar">{profile?.full_name?.slice(0, 1).toUpperCase() || "S"}</span><span><strong>{profile?.full_name || "Staff account"}</strong><small>{profile?.role || "SquareOne portal"}</small></span><span aria-hidden="true">⌄</span></button>
+            {accountOpen && <div className="account-menu" id="account-menu"><span>{profile?.email || "Signed in"}</span><button type="button" style={{color:"#176b4d",background:"#edf5ef"}} onClick={() => openAccount("profile")}>My Profile</button><button type="button" style={{color:"#176b4d",background:"#edf5ef"}} onClick={() => openAccount("edit")}>Edit Profile</button><button type="button" style={{color:"#176b4d",background:"#edf5ef"}} onClick={() => openAccount("password")}>Change Password</button><button type="button" onClick={logout}>Sign Out</button></div>}
+          </div>
+        </header>
+        {accountView && <section className="panel" style={{marginBottom:24}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><h2>{accountView === "profile" ? "My Profile" : accountView === "edit" ? "Edit Profile" : "Change Password"}</h2><button type="button" disabled={accountBusy} onClick={() => {setAccountView(null);setPasswordForm({current_password:"",new_password:"",confirm_password:""});}}>Close</button></div>
+          {accountError && <p role="alert" style={{color:colors.red}}>{accountError}</p>}
+          {accountSuccess && <p role="status" style={{color:colors.green}}>{accountSuccess}</p>}
+          {accountView === "profile" && (profile ? <><dl style={{lineHeight:2}}><dt>Full name</dt><dd>{profile.full_name}</dd><dt>Username</dt><dd>{profile.username}</dd><dt>Email</dt><dd>{profile.email || "Not provided"}</dd><dt>Role</dt><dd>{profile.role}</dd><dt>Member since</dt><dd>{new Date(profile.date_joined).toLocaleDateString()}</dd></dl><button type="button" onClick={() => openAccount("edit")}>Edit Profile</button></> : <p>Profile unavailable or loading.</p>)}
+          {accountView !== "profile" && <form onSubmit={saveAccount} style={{display:"grid",gap:14,maxWidth:480}}>
+            {accountView === "edit" ? ([ ["first_name","First name"], ["last_name","Last name"], ["email","Email address"] ] as const).map(([key,label]) => <label key={key} style={{display:"grid",gap:6}}>{label}<input type={key === "email" ? "email" : "text"} value={profileForm[key]} onChange={e => setProfileForm({...profileForm,[key]:e.target.value})} /></label>) : ([ ["current_password","Current password"], ["new_password","New password"], ["confirm_password","Confirm new password"] ] as const).map(([key,label]) => <label key={key} style={{display:"grid",gap:6}}>{label}<input type="password" required autoComplete={key === "current_password" ? "current-password" : "new-password"} value={passwordForm[key]} onChange={e => setPasswordForm({...passwordForm,[key]:e.target.value})} /></label>)}
+            {accountView === "password" && <small>You will be signed out after changing your password.</small>}
+            <button type="submit" disabled={accountBusy || (accountView === "edit" && !profile)}>{accountBusy ? "Saving…" : "Save Changes"}</button>
+          </form>}
+        </section>}
 
         {error && (
           <p role="alert" style={{ color: colors.red }}>
@@ -703,6 +801,15 @@ function App() {
           <p role="status" style={{ color: colors.green }}>
             {success}
           </p>
+        )}
+
+        {page === "User Management" && (
+          profile?.role === "Administrator" ? <UserManagement /> : (
+            <section className="panel">
+              <h2>{profile ? "Access Denied" : "Checking Permissions"}</h2>
+              <p>{profile ? "Only administrators can manage user accounts." : "Verifying your account permissions."}</p>
+            </section>
+          )
         )}
 
         {page === "Dashboard" && (
@@ -717,7 +824,7 @@ function App() {
                 ["Overdue Tasks", overdueAssignments.length],
               ].map(([label, value]) => (
                 <div className="stat-card" key={label}>
-                  <h3>{label}</h3>
+                  <span className="metric-icon" aria-hidden="true">{({"Total Students":"♙", "Total Assignments":"▤", "Completed Tasks":"✓", "Pending Tasks":"◷", "Completion Rate":"↗", "Overdue Tasks":"!"} as Record<string, string>)[label]}</span><h3>{label}</h3>
                   <strong>{value}</strong>
                 </div>
               ))}
@@ -815,6 +922,7 @@ function App() {
 
             <section className="panel">
               <h2>Overall Assignment Completion</h2>
+              <div className="completion-ring" role="img" aria-label={`${completionRate}% complete`} style={{ background: `conic-gradient(#167653 ${completionRate}%, #e7eee9 0)` }}><div><strong>{completionRate}%</strong><small>Complete</small></div></div>
 
               <p>
                 {completedTasks} of {assignments.length} assignments completed
@@ -1146,7 +1254,7 @@ function App() {
                                 required
                               />
                             ) : (
-                              student.name
+                              <span className="student-identity"><span className="student-avatar">{student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>{student.name}</span>
                             )}
                           </td>
 
@@ -1167,7 +1275,7 @@ function App() {
                           </td>
 
                           <td>{progress.percentage}%</td>
-                          <td>{progress.status}</td>
+                          <td><span className="status-pill" data-status={progress.status}>{progress.status}</span></td>
 
                           <td>
                             <div
@@ -1797,3 +1905,7 @@ function App() {
 }
 
 export default App;
+
+
+
+
